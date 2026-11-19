@@ -1,0 +1,13 @@
+{
+  "name": "pet-companion",
+  "owner": {
+    "name": "AndrewHCL-ktn"
+  },
+  "plugins": [
+    {
+      "name": "pet-companion",
+      "source": "./",
+      "description": "Claude娘桌宠：可拖动的 Q 版桌面宠物，显示当前状态、任务进度与用量"
+    }
+  ]
+}
