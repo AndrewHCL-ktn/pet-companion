@@ -219,8 +219,6 @@ let settings: Settings = readSettings({})
 let configVersion = 0
 
 // ---- the floating window ----
-let petStream: { return?: (v?: unknown) => unknown } | undefined
-let isPetRunning = false
 // set while the window says goodbye before it is closed
 let isFarewell = false
 let stateFile: string | undefined
@@ -305,7 +303,6 @@ const pushState = ($: $) => {
 // One pet for the whole computer, however many sessions run: every session writes its state to a
 // shared folder, the window shows the freshest one, and a lock lets only one window live.
 let sharedDir: string | undefined
-let retryTimer: { cancel: () => void } | undefined
 const HIDDEN = 'hidden'
 
 const findSharedDir = async ($: $): Promise<string | undefined> => {
@@ -325,67 +322,40 @@ const isHidden = async ($: $) => {
   return dir !== undefined && (await $.fs.exists(`${dir}/${HIDDEN}`))
 }
 
-// exit code 3: another session's window is already on the desktop, and it shows this session too
-const ALREADY_SHOWN = 3
-
+// The window is started on its own (window/launch.ps1), not as this session's child: the desktop
+// app stops a session's process in Chat mode or when it sits idle, and she should stay. She lives
+// as long as the Claude app does; a lock keeps her to one window.
 const startPet = async ($: $): Promise<string> => {
-  if (isPetRunning) return '桌宠已经在桌面上啦。'
-  const env = await $.process.hookEnv()
   const dir = await findSharedDir($)
   const root = $.plugin.root
   if (dir === undefined || stateFile === undefined) return '找不到插件数据目录，桌宠没能启动。'
   isFarewell = false
   await writeState($)
-  const argv = [
-    'powershell.exe',
-    '-NoProfile',
-    '-NonInteractive',
-    '-ExecutionPolicy',
-    'Bypass',
-    '-STA',
-    '-WindowStyle',
-    'Hidden',
-    '-File',
-    `${root}/window/pet-window.ps1`,
-    '-StateDir',
-    dir,
-    '-AssetDir',
-    `${root}/assets/float`,
-    '-PrefsFile',
-    `${dir}/window.json`,
-    '-ParentPid',
-    env.CLAUDE_PID ?? '0',
-  ]
-  const stream = $.process.spawn({ argv })
-  petStream = stream as unknown as typeof petStream
-  isPetRunning = true
-  void (async () => {
-    try {
-      for await (const chunk of stream) {
-        if (chunk.stream === 'stderr' && chunk.text.trim() !== '') {
-          $.ui.log(`pet window: ${chunk.text}`, { to: 'debug' })
-        }
-      }
-    } catch (err) {
-      $.ui.log(`pet window failed: ${String(err)}`, { to: 'debug' })
-    } finally {
-      isPetRunning = false
-      petStream = undefined
-    }
-  })()
-  return 'Claude娘来到你的桌面啦！可以用鼠标把她拖到任何地方。'
-}
-
-// While she is meant to be out, a session whose window is not the one shown checks now and then,
-// so she comes back when the session that showed her ends.
-const keepPetAround = ($: $) => {
-  retryTimer?.cancel()
-  retryTimer = $.clock.every(15_000, () =>
-    void quietly(async () => {
-      if (isPetRunning || !settings.autoOpen || (await isHidden($))) return
-      await startPet($)
-    }),
+  const run = await $.process.run(
+    [
+      'powershell.exe',
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      `${root}/window/launch.ps1`,
+      '-StateDir',
+      dir,
+      '-AssetDir',
+      `${root}/assets/float`,
+      '-PrefsFile',
+      `${dir}/window.json`,
+    ],
+    { timeoutMs: 20_000 },
   )
+  const said = run.stdout.trim()
+  if (said.endsWith('running')) return '桌宠已经在桌面上啦。'
+  if (run.exitCode !== 0 || !said.endsWith('started')) {
+    $.ui.log(`pet launch: ${said} ${run.stderr}`.trim(), { to: 'debug' })
+    return '桌宠没能启动，稍后再输入 /pet 试试。'
+  }
+  return 'Claude娘来到你的桌面啦！可以用鼠标把她拖到任何地方。'
 }
 
 // /pet: she comes back, wherever she was put away
@@ -394,26 +364,16 @@ const summonPet = async ($: $): Promise<string> => {
   if (dir !== undefined && (await $.fs.exists(`${dir}/${HIDDEN}`))) {
     await $.process.run(['cmd.exe', '/c', 'del', '/q', `${dir}/${HIDDEN}`.replace(/\//g, '\\')]).catch(() => undefined)
   }
-  keepPetAround($)
   return startPet($)
 }
 
-// she waves goodbye and fades out on her own (whichever session's window she is); the process is
-// ended after that, or at once when quick
-const stopPet = async ($: $, isQuick = false) => {
-  const stream = petStream
-  petStream = undefined
-  isPetRunning = false
-  if (isQuick) {
-    void stream?.return?.()
-    return
-  }
-  retryTimer?.cancel()
+// /pet hide: whichever session showed her, the window reads this session's goodbye (the freshest
+// state) and waves, fades and closes by itself; the marker keeps other sessions from calling her back
+const stopPet = async ($: $) => {
   const dir = await findSharedDir($)
   if (dir !== undefined) await quietly(() => $.fs.write(`${dir}/${HIDDEN}`, 'hidden by /pet hide'))
   isFarewell = true
   await quietly(() => writeState($))
-  if (stream !== undefined) $.clock.after(3000, () => void stream.return?.())
 }
 
 // ---- mood with timers ----
@@ -575,15 +535,9 @@ export const register: Register = (on, options) => {
       void quietly(async () => {
         await findSharedDir($)
         if (!(await isHidden($))) await startPet($)
-        keepPetAround($)
       })
     }
     if (settings.sidebar) void $.ui.open({ id: PANE, title: TITLE })
-    return next(e)
-  })
-
-  on('session.end', async ($, e, next) => {
-    await stopPet($, true)
     return next(e)
   })
 
@@ -816,7 +770,7 @@ export const register: Register = (on, options) => {
             key="summon"
             label="召唤桌面桌宠"
             variant="primary"
-            onPress={() => void quietly(() => startPet($))}
+            onPress={() => void quietly(() => summonPet($))}
           />
         </Box>
 

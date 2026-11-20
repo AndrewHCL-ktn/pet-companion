@@ -1,6 +1,6 @@
 # pet-companion · Claude娘桌宠
 
-A Claude Code mod that puts a chibi "Claude娘" on your desktop: a transparent, always-on-top window you can drag anywhere (Windows).
+A Claude Code mod that puts a chibi "Claude娘" on your desktop: a transparent window you can drag anywhere (Windows). She stays while the Claude app is open, in Code and in Chat, and dozes off when no session is at work.
 
 - **桌面桌宠**：独立于 Claude Code 窗口，可用鼠标拖到屏幕任何位置，位置会被记住。
 - **状态差分**：随 Claude 的状态换表情——待机、思考、工作、等你回应、完成、出错、睡着（空闲 5 分钟后）。

@@ -9,5 +9,6 @@
       "source": "./",
       "description": "Claude娘桌宠：可拖动的 Q 版桌面宠物，显示当前状态、任务进度与用量"
     }
-  ]
+  ],
+  "description": "Claude娘 desktop pet for Claude Code"
 }

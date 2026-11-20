@@ -4,6 +4,7 @@
   [Parameter(Mandatory = $true)][string]$AssetDir,
   [Parameter(Mandatory = $true)][string]$PrefsFile,
   [int]$ParentPid = 0,
+  [int]$HostPid = 0,
   [string]$Snapshot = '',
   [switch]$SnapshotBubble,
   [string]$FrameDir = ''
@@ -43,6 +44,10 @@ namespace PetNative {
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] static extern IntPtr GetLong(IntPtr h, int i);
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] static extern IntPtr SetLong(IntPtr h, int i, IntPtr v);
     [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
+
+    const int GWLP_HWNDPARENT = -8;
+    // a window's owner can be changed after it is shown
+    public static void SetOwner(IntPtr h, IntPtr owner) { SetLong(h, GWLP_HWNDPARENT, owner); }
 
     const int GWL_EXSTYLE = -20;
     const long WS_EX_TOOLWINDOW = 0x80, WS_EX_APPWINDOW = 0x40000;
@@ -770,6 +775,7 @@ function Poll {
       if ($w -ne $script:lastWrite) {
         $s = Read-Json $file
         if ($null -ne $s) {
+          $script:dozing = $false
           $script:lastWrite = $w
           $script:state = $s
           Apply-State $s
@@ -856,19 +862,55 @@ if ($FrameDir -ne '') {
   $ft.Start()
 }
 
-$script:hostHwnd = if ($ParentPid -gt 0) { Find-HostWindow $ParentPid } else { [IntPtr]::Zero }
+$script:hostHwnd = [IntPtr]::Zero
+if ($HostPid -gt 0) {
+  $hp = Get-Process -Id $HostPid -ErrorAction SilentlyContinue
+  if ($hp) { $script:hostHwnd = $hp.MainWindowHandle }
+} elseif ($ParentPid -gt 0) {
+  $script:hostHwnd = Find-HostWindow $ParentPid
+}
 if ($script:hostHwnd -ne [IntPtr]::Zero) {
-  # owned by Claude Code's window: same level as it, minimized with it, gone from Alt+Tab
+  # owned by the Claude app's window: same level as it, minimized with it, gone from Alt+Tab
   (New-Object System.Windows.Interop.WindowInteropHelper($win)).Owner = $script:hostHwnd
 }
 $win.Add_SourceInitialized({
   [PetNative.Win]::HideFromAltTab((New-Object System.Windows.Interop.WindowInteropHelper($win)).Handle)
 })
 
+function Write-PetLog([string]$text) {
+  try { [IO.File]::AppendAllText((Join-Path $script:dataDir 'pet.log'), ([datetime]::Now.ToString('s') + ' ' + $text + "`r`n"), $utf8) } catch {}
+}
+
+$script:dozing = $false
+function Watch-Quiet {
+  if ($null -eq $script:state -or $script:special -ne '') { return }
+  $quiet = ([datetime]::UtcNow - $script:lastWrite).TotalMinutes -gt 10
+  if ($quiet -and $script:lastMood -ne 'sleep') {
+    $script:dozing = $true
+    $nap = $script:state | ConvertTo-Json -Depth 6 | ConvertFrom-Json
+    $nap.mood = 'sleep'; $nap.label = '睡着了 zzZ'; $nap.line = '（呼……呼……）'; $nap.detail = ''; $nap.color = '#8a8fa8'
+    Apply-State $nap
+  }
+}
+
 function Follow-Host {
+  if ($HostPid -gt 0) {
+    $hp = Get-Process -Id $HostPid -ErrorAction SilentlyContinue
+    if (-not $hp) { Write-PetLog 'the Claude app closed'; $win.Close(); return }
+    # the app may show its window anew (from the tray, say): own the new one
+    $now = $hp.MainWindowHandle
+    if ($now -ne [IntPtr]::Zero -and $now -ne $script:hostHwnd) {
+      $script:hostHwnd = $now
+      $mine0 = (New-Object System.Windows.Interop.WindowInteropHelper($win)).Handle
+      [PetNative.Win]::SetOwner($mine0, $now)
+    }
+  }
   $hh = $script:hostHwnd
   if ($hh -eq [IntPtr]::Zero) { return }
-  if (-not [PetNative.Win]::IsWindow($hh)) { $win.Close(); return }
+  if (-not [PetNative.Win]::IsWindow($hh)) {
+    if ($HostPid -gt 0) { return }
+    Write-PetLog 'the host window closed'; $win.Close(); return
+  }
   $mine = (New-Object System.Windows.Interop.WindowInteropHelper($win)).Handle
   if ($mine -eq [IntPtr]::Zero) { return }
   try { [void][PetNative.Win]::FollowDesktop($mine, $hh) } catch {}
@@ -882,7 +924,7 @@ $timer.Add_Tick({
   Update-Bubble
   $script:ticks++
   if (($script:ticks % 3) -eq 0) { Follow-Host }
-  if ($ParentPid -gt 0 -and ($script:ticks % 10) -eq 0 -and -not (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) { $win.Close() }
+  if (($script:ticks % 10) -eq 0) { Watch-Quiet }
 })
 $timer.Start()
 

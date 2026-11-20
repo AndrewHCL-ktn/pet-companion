@@ -37,7 +37,11 @@ const stubEngine = (on: any) => {
   on('fs.read', () => ({ value: { base64: PNG } }))
   on('fs.exists', () => ({ value: false }))
   on('clock.every', () => ({ value: {} }))
-  on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } }))
+  on('process.run', (_: unknown, e: any) => {
+    const argv: string[] = e.argv ?? []
+    if (argv.some(a => a.endsWith('launch.ps1'))) spawned.push(argv)
+    return { value: { exitCode: 0, stdout: 'started\r\n', stderr: '' } }
+  })
   on('session.usage', () => ({
     value: {
       startedAt: 0,
@@ -94,7 +98,7 @@ test('the floating pet opens at start with the chosen settings', { options: { si
   expect(spawned.length).toBe(1)
   const argv = spawned[0] ?? []
   expect(argv[0]).toBe('powershell.exe')
-  expect(argv.join(' ')).toContain('pet-window.ps1')
+  expect(argv.join(' ')).toContain('launch.ps1')
   expect(argv.join(' ')).toContain('pet-companion-shared')
   const text = JSON.stringify(writes)
   expect(text).toContain('large')
