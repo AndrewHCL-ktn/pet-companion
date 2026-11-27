@@ -198,7 +198,51 @@ $script:soundPrefs = Join-Path $script:dataDir 'sound.json'
 $script:defaultSound = Join-Path (Split-Path -Parent $AssetDir) 'sounds\done.wav'
 $script:player = New-Object System.Windows.Media.MediaPlayer
 $script:patPlayer = New-Object System.Windows.Media.MediaPlayer
-$script:patSound = Join-Path (Split-Path -Parent $AssetDir) 'sounds\pat.wav'
+$script:soundDir = Join-Path (Split-Path -Parent $AssetDir) 'sounds'
+# the four head-pat sounds that ship with her, by key
+$script:patChoices = [ordered]@{ boop = '软萌泡泡'; round = '圆润啵'; puu = '单声噗'; popon = '噗嘣' }
+$script:patPrefs = Join-Path $script:dataDir 'pat-sound.json'
+$script:cfgPat = 'boop'
+$script:patOn = $true
+$script:cfgPatFile = ''
+
+# The sound picked from her right-click menu stands until the settings change; then the settings win.
+function Get-PatChoice {
+  $saved = Read-Json $script:patPrefs
+  if ($null -ne $saved -and [string]$saved.version -eq [string]$script:lastConfigVersion) {
+    return @{ choice = [string]$saved.choice; file = [string]$saved.file }
+  }
+  return @{ choice = $script:cfgPat; file = $script:cfgPatFile }
+}
+
+function Get-PatFile {
+  $c = Get-PatChoice
+  if ($c.choice -eq 'custom' -and $c.file -ne '' -and (Test-Path -LiteralPath $c.file)) { return $c.file }
+  $key = if ($script:patChoices.Contains($c.choice)) { $c.choice } else { 'boop' }
+  return Join-Path $script:soundDir ('pat-' + $key + '.wav')
+}
+
+function Set-PatChoice([string]$choice, [string]$file = '') {
+  try {
+    $json = @{ choice = $choice; file = $file; version = [string]$script:lastConfigVersion } | ConvertTo-Json -Compress
+    [IO.File]::WriteAllText($script:patPrefs, $json, $utf8)
+  } catch {}
+  Play-PatSound $true
+}
+
+# your own head-pat sound: copied next to her settings, so it stays even if the original moves
+function Select-CustomPat {
+  $dlg = New-Object Microsoft.Win32.OpenFileDialog
+  $dlg.Title = '选择 Claude娘的摸头音效'
+  $dlg.Filter = '音频文件 (*.wav;*.mp3;*.wma;*.m4a)|*.wav;*.mp3;*.wma;*.m4a'
+  if ($dlg.ShowDialog($win) -ne $true) { return }
+  try {
+    $dest = Join-Path $script:dataDir ('custom-pat' + [IO.Path]::GetExtension($dlg.FileName))
+    Get-ChildItem -LiteralPath $script:dataDir -Filter 'custom-pat.*' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    Copy-Item -LiteralPath $dlg.FileName -Destination $dest -Force
+    Set-PatChoice 'custom' $dest
+  } catch {}
+}
 $script:soundOn = $true
 $script:soundVolume = 0.6
 $script:soundFile = ''
@@ -222,11 +266,14 @@ function Play-Chime([bool]$force = $false) {
   } catch {}
 }
 
-function Play-PatSound {
+function Play-PatSound([bool]$force = $false) {
   $on = if ($null -ne $script:local.sound) { $script:local.sound } else { $script:soundOn }
-  if (-not $on -or -not (Test-Path -LiteralPath $script:patSound)) { return }
+  $patOn = if ($null -ne $script:local.patOn) { $script:local.patOn } else { $script:patOn }
+  $on = $on -and $patOn
+  $file = Get-PatFile
+  if ((-not $on -and -not $force) -or -not (Test-Path -LiteralPath $file)) { return }
   try {
-    $script:patPlayer.Open((New-Object System.Uri($script:patSound)))
+    $script:patPlayer.Open((New-Object System.Uri($file)))
     $script:patPlayer.Volume = [Math]::Min(1, $script:soundVolume * 0.9)
     $script:patPlayer.Position = [TimeSpan]::Zero
     $script:patPlayer.Play()
@@ -256,7 +303,7 @@ function Reset-CustomSound {
 }
 
 # ---- local, per-window choices (a settings change from Claude Code resets them) ----
-$script:local = @{ size = $null; bubble = $null; topmost = $null; sound = $null }
+$script:local = @{ size = $null; bubble = $null; topmost = $null; sound = $null; patOn = $null }
 $script:lastConfigVersion = -1
 $script:lastMood = ''
 $script:lastWrite = [datetime]::MinValue
@@ -605,12 +652,17 @@ function Apply-State($s) {
   $cfg = $s.config
   if ($null -ne $cfg -and $cfg.version -ne $script:lastConfigVersion) {
     $script:lastConfigVersion = $cfg.version
-    $script:local = @{ size = $null; bubble = $null; topmost = $null; sound = $null }
+    $script:local = @{ size = $null; bubble = $null; topmost = $null; sound = $null; patOn = $null }
   }
   if ($null -ne $cfg -and $null -ne $cfg.sound) {
     $script:soundOn = [bool]$cfg.sound
     if ($cfg.soundVolume) { $script:soundVolume = [double]$cfg.soundVolume }
     $script:soundFile = [string]$cfg.soundFile
+  }
+  if ($null -ne $cfg -and $null -ne $cfg.patSoundOn) { $script:patOn = [bool]$cfg.patSoundOn }
+  if ($null -ne $cfg -and $cfg.patSound) {
+    $script:cfgPat = [string]$cfg.patSound
+    $script:cfgPatFile = [string]$cfg.patSoundFile
   }
   $size = if ($script:local.size) { $script:local.size } elseif ($cfg) { $cfg.size } else { 'medium' }
   $bubble = if ($script:local.bubble) { $script:local.bubble } elseif ($cfg) { $cfg.bubble } else { 'change' }
@@ -759,6 +811,23 @@ $win.Add_MouseRightButtonUp({
   [void]$soundMenu.Items.Add((New-Item-Menu '选择自定义提示音…' { Select-CustomSound }))
   [void]$soundMenu.Items.Add((New-Item-Menu '恢复默认提示音' { Reset-CustomSound }))
   [void]$menu.Items.Add($soundMenu)
+  $patMenu = New-Object System.Windows.Controls.MenuItem
+  $patMenu.Header = '摸头音效'
+  $patIsOn = if ($null -ne $script:local.patOn) { $script:local.patOn } else { $script:patOn }
+  [void]$patMenu.Items.Add((New-Item-Menu '双击时播放' { $c0 = if ($null -ne $script:local.patOn) { $script:local.patOn } else { $script:patOn }; $script:local.patOn = -not $c0 } $patIsOn))
+  [void]$patMenu.Items.Add((New-Object System.Windows.Controls.Separator))
+  $cur = Get-PatChoice
+  foreach ($key in $script:patChoices.Keys) {
+    $item = New-Item-Menu $script:patChoices[$key] ([scriptblock]::Create("Set-PatChoice '$key'")) ($cur.choice -eq $key)
+    [void]$patMenu.Items.Add($item)
+  }
+  if ($cur.choice -eq 'custom') {
+    [void]$patMenu.Items.Add((New-Item-Menu ('自定义：' + [IO.Path]::GetFileName($cur.file)) { Play-PatSound $true } $true))
+  }
+  [void]$patMenu.Items.Add((New-Object System.Windows.Controls.Separator))
+  [void]$patMenu.Items.Add((New-Item-Menu '试听' { Play-PatSound $true }))
+  [void]$patMenu.Items.Add((New-Item-Menu '选择自定义音效…' { Select-CustomPat }))
+  [void]$menu.Items.Add($patMenu)
   [void]$menu.Items.Add((New-Item-Menu '置顶' { $script:local.topmost = -not $win.Topmost; Apply-State $script:state } $win.Topmost))
   [void]$menu.Items.Add((New-Item-Menu '回到右下角' {
     $wa = [System.Windows.SystemParameters]::WorkArea

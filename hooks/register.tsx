@@ -40,6 +40,9 @@ type Settings = {
   sound: boolean
   soundVolume: number
   soundFile: string
+  patSoundOn: boolean
+  patSound: 'boop' | 'round' | 'puu' | 'popon' | 'custom'
+  patSoundFile: string
   showUsage: boolean
   alwaysOnTop: boolean
   sidebar: boolean
@@ -52,6 +55,13 @@ const BUBBLE: Record<string, Settings['bubble']> = {
   隐藏: 'never',
 }
 const LEVEL: Record<string, 'brief' | 'full'> = { 简略: 'brief', 详细: 'full' }
+const PAT: Record<string, Settings['patSound']> = {
+  软萌泡泡: 'boop',
+  圆润啵: 'round',
+  单声噗: 'puu',
+  噗嘣: 'popon',
+  自定义文件: 'custom',
+}
 const VOLUME: Record<string, number> = { 小: 0.3, 中: 0.6, 大: 1 }
 const SECONDS: Record<string, number> = { '3秒': 3, '5秒': 5, '8秒': 8, '15秒': 15 }
 
@@ -65,6 +75,9 @@ const readSettings = (o: Record<string, unknown>): Settings => ({
   sound: o.sound !== false,
   soundVolume: VOLUME[String(o.soundVolume)] ?? 0.6,
   soundFile: typeof o.soundFile === 'string' ? o.soundFile.trim().replace(/^"|"$/g, '') : '',
+  patSoundOn: o.patSoundOn !== false,
+  patSound: PAT[String(o.patSound)] ?? 'boop',
+  patSoundFile: typeof o.patSoundFile === 'string' ? o.patSoundFile.trim().replace(/^"|"$/g, '') : '',
   showUsage: o.showUsage !== false,
   alwaysOnTop: o.alwaysOnTop === true,
   sidebar: o.sidebar === true,
@@ -286,6 +299,9 @@ const writeState = async ($: $) => {
       sound: settings.sound,
       soundVolume: settings.soundVolume,
       soundFile: settings.soundFile,
+      patSoundOn: settings.patSoundOn,
+      patSound: settings.patSound,
+      patSoundFile: settings.patSoundFile,
       showUsage: settings.showUsage,
       topmost: settings.alwaysOnTop,
       version: configVersion,
@@ -478,6 +494,8 @@ const FIELD_ROWS: { field: Field; label: string; options: string[] }[] = [
   { field: 'pokeLevel', label: '双击时显示', options: ['详细', '简略'] },
   { field: 'sound', label: '任务完成提示音', options: ['开', '关'] },
   { field: 'soundVolume', label: '提示音音量', options: ['小', '中', '大'] },
+  { field: 'patSoundOn', label: '双击时播放摸头音效', options: ['开', '关'] },
+  { field: 'patSound', label: '摸头音效', options: ['软萌泡泡', '圆润啵', '单声噗', '噗嘣', '自定义文件'] },
   { field: 'showUsage', label: '气泡中显示用量', options: ['开', '关'] },
   { field: 'alwaysOnTop', label: '桌宠置顶', options: ['开', '关'] },
   { field: 'sidebar', label: '同时打开侧边栏面板', options: ['开', '关'] },
@@ -490,7 +508,8 @@ const shownValue = (field: Field): string => {
   if (field === 'bubbleSeconds') return `${v}秒`
   if (field === 'autoLevel' || field === 'pokeLevel') return v === 'full' ? '详细' : '简略'
   if (field === 'soundVolume') return Object.keys(VOLUME).find(k => VOLUME[k] === v) ?? '中'
-  if (field === 'soundFile') return String(v)
+  if (field === 'soundFile' || field === 'patSoundFile') return String(v)
+  if (field === 'patSound') return Object.keys(PAT).find(k => PAT[k] === v) ?? '软萌泡泡'
   return Object.keys(BUBBLE).find(k => BUBBLE[k] === v) ?? '状态变化时显示'
 }
 
@@ -524,7 +543,7 @@ export const register: Register = (on, options) => {
       $.command.register({
         name: 'pet',
         description: '召唤 Claude娘桌宠；hide 收起，settings 打开设置，sound <文件> 换提示音，panel 打开侧边栏面板',
-        argumentHint: '[hide|settings|sound <文件>|panel]',
+        argumentHint: '[hide|settings|sound <文件>|pat <音效或文件>|panel]',
       }),
     )
     void quietly(async () => {
@@ -560,6 +579,29 @@ export const register: Register = (on, options) => {
       return {
         text: path === '' ? '已恢复默认提示音。' : `提示音已换成：${path}（${settingsNote}）`,
       }
+    }
+    if (arg === 'pat' || arg.startsWith('pat ') || arg.startsWith('摸头')) {
+      const raw = String((e as { args?: string }).args ?? '').trim()
+      const what = raw.replace(/^(pat|摸头音效|摸头)\s*/i, '').trim().replace(/^"|"$/g, '')
+      if (/^(off|关|关闭)$/i.test(what) || /^(on|开|打开)$/i.test(what)) {
+        const isOn = /^(on|开|打开)$/i.test(what)
+        await changeSetting($, 'patSoundOn', isOn ? '开' : '关')
+        return { text: isOn ? `双击时会播放摸头音效了（${settingsNote}）` : `双击时不再播放摸头音效（${settingsNote}）` }
+      }
+      if (what === '') {
+        return { text: `/pet pat off 关闭、/pet pat on 打开双击音效。摸头音效可选：${Object.keys(PAT).filter(k => k !== '自定义文件').join('、')}，或一个音频文件的路径。例如 /pet pat 噗嘣` }
+      }
+      if (PAT[what] !== undefined && what !== '自定义文件') {
+        await changeSetting($, 'patSound', what)
+        return { text: `摸头音效已换成「${what}」（${settingsNote}）` }
+      }
+      if (!/\.(wav|mp3|wma|m4a)$/i.test(what)) {
+        return { text: '摸头音效需要是自带的四个之一，或 .wav / .mp3 / .wma / .m4a 文件。' }
+      }
+      if (!(await $.fs.exists(what))) return { text: `找不到这个文件：${what}` }
+      await changeSetting($, 'patSoundFile', what)
+      await changeSetting($, 'patSound', '自定义文件')
+      return { text: `摸头音效已换成：${what}（${settingsNote}）` }
     }
     if (arg === 'settings' || arg === '设置' || arg === 'config') {
       await $.ui.open({ id: SETTINGS_PANE, title: 'Claude娘设置' })
@@ -719,7 +761,7 @@ export const register: Register = (on, options) => {
           />
         ))}
         {settingsNote !== '' && <Text color="#3fa66b">{settingsNote}</Text>}
-        <Text dimColor>小技巧：鼠标停在桌宠身上会显示气泡；右键可临时调整大小、气泡和置顶；双击查看完整的详细信息；右键 → 提示音 可以试听或换成你自己的音效（也可输入 /pet sound 文件路径）。</Text>
+        <Text dimColor>小技巧：鼠标停在桌宠身上会显示气泡；右键可临时调整大小、气泡和置顶；双击查看完整的详细信息；右键 → 提示音 / 摸头音效 可以试听、切换或换成你自己的音效（也可输入 /pet sound 文件路径、/pet pat 噗嘣）。</Text>
       </Box>
     )
   })

@@ -1,6 +1,6 @@
 {
   "name": "pet-companion",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Claude娘桌宠：可拖动的 Q 版桌面宠物，显示当前状态、任务进度与用量",
   "license": "MIT",
   "author": {
@@ -108,6 +108,31 @@
       "type": "string",
       "title": "自定义提示音文件",
       "description": "留空用默认提示音；也可以填一个 .wav / .mp3 文件的完整路径，或在桌宠上右键 → 提示音 → 选择自定义提示音",
+      "default": ""
+    },
+    "patSoundOn": {
+      "type": "boolean",
+      "title": "双击时播放摸头音效",
+      "description": "关掉后双击桌宠只有动画，没有声音",
+      "default": true
+    },
+    "patSound": {
+      "type": "string",
+      "title": "摸头音效",
+      "description": "双击（摸头）时的音效：四个自带的任选其一，或选\"自定义文件\"并在下一项填路径",
+      "options": [
+        "软萌泡泡",
+        "圆润啵",
+        "单声噗",
+        "噗嘣",
+        "自定义文件"
+      ],
+      "default": "软萌泡泡"
+    },
+    "patSoundFile": {
+      "type": "string",
+      "title": "自定义摸头音效文件",
+      "description": "\"摸头音效\"选\"自定义文件\"时用：一个 .wav / .mp3 文件的完整路径。也可以在桌宠上右键 → 摸头音效 → 选择自定义音效",
       "default": ""
     }
   },

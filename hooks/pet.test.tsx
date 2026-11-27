@@ -138,3 +138,17 @@ test('the chime settings reach the window', { options: { sound: true, soundVolum
   expect(text).toContain('soundVolume\\":1')
   expect(text).toContain('mine.mp3')
 })
+
+test('the head-pat sound choice reaches the window', { options: { patSound: '噗嘣' } }, async ($, on) => {
+  stubEngine(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await new Promise(r => setTimeout(r, 20))
+  expect(JSON.stringify(writes)).toContain('patSound\\":\\"popon')
+})
+
+test('the head-pat sound can be turned off', { options: { patSoundOn: false } }, async ($, on) => {
+  stubEngine(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await new Promise(r => setTimeout(r, 20))
+  expect(JSON.stringify(writes)).toContain('patSoundOn\\":false')
+})
