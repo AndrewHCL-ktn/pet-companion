@@ -5,7 +5,7 @@ A Claude Code mod that puts a chibi "Claude娘" on your desktop: a transparent w
 - **桌面桌宠**：独立于 Claude Code 窗口，可用鼠标拖到屏幕任何位置，位置会被记住。
 - **状态差分**：随 Claude 的状态换表情——待机、思考、工作、等你回应、完成、出错、睡着（空闲 5 分钟后）。
 - **对话气泡**：显示当前状态、正在做什么、任务进度条，以及用量（上下文、5 小时 / 7 天额度、花费估算）。
-- **小动作**：出现时挥手打招呼，收起时挥手说拜拜再淡出，双击时被摸头会害羞地蹭一蹭。
+- **小动作**：出现时挥手打招呼，收起时挥手说拜拜再淡出，双击时被摸头会害羞地蹭一蹭，还会发出一声短短的“哔噗～”。
 - **右键菜单**：临时调整大小、气泡、置顶，回到右下角，或收起桌宠；双击查看完整的详细信息，读秒后自动收起。
 
 ## 安装
@@ -46,6 +46,6 @@ A Claude Code mod that puts a chibi "Claude娘" on your desktop: a transparent w
 
 ## 提示音
 
-默认提示音 `assets/sounds/done.wav` 是为这个插件合成的原创音效，随插件一起以 MIT 协议发布。
+默认提示音 `assets/sounds/done.wav` 和摸头音效 `assets/sounds/pat.wav` 都是为这个插件合成的原创音效，随插件一起以 MIT 协议发布。摸头音效跟随“任务完成提示音”开关和音量设置。
 
 Images in `assets/` are the author's own character art.

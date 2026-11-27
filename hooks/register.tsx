@@ -245,7 +245,7 @@ const writeState = async ($: $) => {
     const reset = fmtReset(l.resetsAt)
     const left = remaining(l.percent)
     rows.push({
-      label: `${LIMIT_LABEL[l.kind] ?? l.kind}剩余`,
+      label: LIMIT_LABEL[l.kind] ?? l.kind,
       percent: left,
       right: reset ? `剩 ${left}% · ${reset}` : `剩 ${left}%`,
       color: remainingColor(left),

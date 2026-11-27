@@ -197,6 +197,8 @@ $script:dataDir = Split-Path -Parent $PrefsFile
 $script:soundPrefs = Join-Path $script:dataDir 'sound.json'
 $script:defaultSound = Join-Path (Split-Path -Parent $AssetDir) 'sounds\done.wav'
 $script:player = New-Object System.Windows.Media.MediaPlayer
+$script:patPlayer = New-Object System.Windows.Media.MediaPlayer
+$script:patSound = Join-Path (Split-Path -Parent $AssetDir) 'sounds\pat.wav'
 $script:soundOn = $true
 $script:soundVolume = 0.6
 $script:soundFile = ''
@@ -217,6 +219,17 @@ function Play-Chime([bool]$force = $false) {
     $script:player.Volume = $script:soundVolume
     $script:player.Position = [TimeSpan]::Zero
     $script:player.Play()
+  } catch {}
+}
+
+function Play-PatSound {
+  $on = if ($null -ne $script:local.sound) { $script:local.sound } else { $script:soundOn }
+  if (-not $on -or -not (Test-Path -LiteralPath $script:patSound)) { return }
+  try {
+    $script:patPlayer.Open((New-Object System.Uri($script:patSound)))
+    $script:patPlayer.Volume = [Math]::Min(1, $script:soundVolume * 0.9)
+    $script:patPlayer.Position = [TimeSpan]::Zero
+    $script:patPlayer.Play()
   } catch {}
 }
 
@@ -432,6 +445,7 @@ $script:resetLevel.Add_Tick({
 # double-click: the bubble pops open with the poke level, with a springy overshoot, and she does a little hop
 function Invoke-Poke {
   $script:poking = $true
+  Play-PatSound
   Set-Level $script:pokeLevel
   # its own timer, so a double-click shows the details whatever the bubble mode
   $script:pokeUntil = [datetime]::Now.AddSeconds([Math]::Max($script:bubbleSeconds, 6))
@@ -608,7 +622,12 @@ function Apply-State($s) {
   $showUsage = if ($cfg) { [bool]$cfg.showUsage } else { $true }
 
   $h = $sizes[[string]$size]; if (-not $h) { $h = 170 }
+  $w = [Math]::Round($h * 488 / 480)
   $ui.PetA.Height = $h; $ui.PetB.Height = $h
+  $ui.PetA.Width = $w; $ui.PetB.Width = $w
+  # the window is as wide as the widest bubble (250 + its margins) from the start, so a wider bubble
+  # (the detailed one, long usage lines) never widens it and re-centers her
+  $ui.Root.Width = [Math]::Max(266, $w + 28)
   $ui.Shadow.Width = $h * 0.55
   $win.Topmost = $topmost
 
